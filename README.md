@@ -1,6 +1,6 @@
 # Nadi-Devops
 
-> *Nadi - Gym Membership & Class Booking service App*<
+> *Nadi - Gym Membership & Class Booking service App*
 
 Greetings to ZainIQ, Hub200, and Techies Lab :P
 

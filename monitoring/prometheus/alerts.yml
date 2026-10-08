@@ -1,0 +1,38 @@
+groups:
+  - name: infrastructure_alerts
+    rules:
+      - alert: TargetDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus target {{ $labels.instance }} is down"
+          description: "Scrape target {{ $labels.job }} on {{ $labels.instance }} has been unreachable for more than 1 minute."
+
+      - alert: HostHighCpuUsage
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host high CPU load on {{ $labels.instance }}"
+          description: "CPU usage is above 85% for the last 5 minutes."
+
+      - alert: HostOutOfMemory
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100 < 10
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host memory low on {{ $labels.instance }}"
+          description: "Available RAM is below 10%."
+
+      - alert: PostgresDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL database down"
+          description: "Postgres exporter cannot communicate with the database."

@@ -1,0 +1,63 @@
+name: gym-monitoring
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: gym-prometheus
+    restart: unless-stopped
+    volumes:
+      - /opt/gym/devops/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - /opt/gym/devops/monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - gym-data
+
+  postgres_exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: gym-postgres-exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME_FILE: /run/secrets/pg_dsn
+    secrets:
+      - pg_dsn
+    networks:
+      - gym-data
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: gym-grafana
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3030:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD_FILE: /run/secrets/grafana_admin_password
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    secrets:
+      - grafana_admin_password
+    volumes:
+      - /opt/gym/devops/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - /opt/gym/devops/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    networks:
+      - gym-data
+
+secrets:
+  grafana_admin_password:
+    file: /etc/gym/secrets/grafana_admin_password
+  pg_dsn:
+    file: /etc/gym/secrets/pg_dsn
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  gym-data:
+    external: true

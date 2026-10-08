@@ -9,7 +9,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Server Webhook
+        env:
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
         run: |
-          PAYLOAD="{\"ref\":\"${{ github.ref }}\",\"repository\":{\"name\":\"${{ github.event.repository.name }}\"}}"
-          SECRET="${{ secrets.WEBHOOK_SECRET }}"
-          SIG=$(echo -n "${PAYLOAD}" | openssl dgst -sha256 -hmac "${SECRET}" | awk {print
+          PAYLOAD="{\"ref\":\"${GITHUB_REF}\",\"repository\":{\"name\":\"${GITHUB_REPOSITORY#*/}\"}}"
+          SIG=$(echo -n "${PAYLOAD}" | openssl dgst -sha256 -hmac "${WEBHOOK_SECRET}" | awk '{print $2}')
+          
+          curl -k -f -X POST "https://${SERVER_HOST}:8001/hooks/deploy" \
+            -H "Content-Type: application/json" \
+            -H "X-Hub-Signature-256: sha256=${SIG}" \
+            -d "${PAYLOAD}"

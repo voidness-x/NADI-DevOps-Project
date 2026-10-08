@@ -1,0 +1,12 @@
+# Managed by Caddy Slot Matrix - Blue Environment
+header X-Slot blue
+handle_path /api/* {
+	reverse_proxy 127.0.0.1:8101 {
+		health_uri /health
+		health_interval 5s
+		lb_try_duration 5s
+	}
+}
+handle {
+	reverse_proxy 127.0.0.1:8101
+}

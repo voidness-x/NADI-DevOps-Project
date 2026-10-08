@@ -1,0 +1,26 @@
+name: gym-${SLOT}
+
+services:
+  backend:
+    image: gym/backend:${BACKEND_TAG}
+    container_name: gym-${SLOT}-backend
+    restart: always
+    ports:
+      - "127.0.0.1:${BE_PORT}:8000"
+    environment:
+      - DATABASE_URL=postgresql://gym_user:${POSTGRES_PASSWORD}@gym-postgres:5432/gym_db
+    env_file:
+      - /etc/gym/backend.env
+    networks:
+      - gym-data
+    security_opt:
+      - "no-new-privileges:true"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen(http://127.0.0.1:8000/docs)\" || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+networks:
+  gym-data:
+    external: true

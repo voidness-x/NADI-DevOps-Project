@@ -1,0 +1,15 @@
+name: Continuous Deployment
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Server Webhook
+        run: |
+          PAYLOAD="{\"ref\":\"${{ github.ref }}\",\"repository\":{\"name\":\"${{ github.event.repository.name }}\"}}"
+          SECRET="${{ secrets.WEBHOOK_SECRET }}"
+          SIG=$(echo -n "${PAYLOAD}" | openssl dgst -sha256 -hmac "${SECRET}" | awk {print

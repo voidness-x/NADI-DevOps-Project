@@ -1,0 +1,35 @@
+name: gym-infra
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: gym-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gym_db
+      POSTGRES_USER: gym_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - gym-data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gym_user -d gym_db"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    security_opt:
+      - "no-new-privileges:true"
+    stop_grace_period: 60s
+
+secrets:
+  postgres_password:
+    file: /etc/gym/secrets/postgres_password
+
+volumes:
+  pgdata:
+
+networks:
+  gym-data:
+    external: true

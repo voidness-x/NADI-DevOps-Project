@@ -16,7 +16,8 @@ jobs:
           PAYLOAD="{\"ref\":\"${GITHUB_REF}\",\"repository\":{\"name\":\"${GITHUB_REPOSITORY#*/}\"}}"
           SIG=$(echo -n "${PAYLOAD}" | openssl dgst -sha256 -hmac "${WEBHOOK_SECRET}" | awk '{print $2}')
           
-          curl -k -f -X POST "https://${SERVER_HOST}:8001/hooks/deploy" \
+          curl -k -f -X POST "https://localhost:8001/hooks/deploy" \
+            --connect-to "localhost:8001:${SERVER_HOST}:8001" \
             -H "Content-Type: application/json" \
             -H "X-Hub-Signature-256: sha256=${SIG}" \
             -d "${PAYLOAD}"

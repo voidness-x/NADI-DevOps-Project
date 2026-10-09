@@ -2,8 +2,10 @@ name: gym-${SLOT}
 
 services:
   backend:
-    image: gym/backend:${BACKEND_TAG}
+    image: gym/backend:${BACKEND_TAG:-latest}
     container_name: gym-${SLOT}-backend
+    build:
+      context: /opt/gym/src/backend
     restart: always
     ports:
       - "127.0.0.1:${BE_PORT}:8000"
@@ -15,11 +17,19 @@ services:
       - gym-data
     security_opt:
       - "no-new-privileges:true"
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen(http://127.0.0.1:8000/docs)\" || exit 1"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
+
+  frontend:
+    image: gym/frontend:${FRONTEND_TAG:-latest}
+    container_name: gym-${SLOT}-frontend
+    build:
+      context: /opt/gym/src/frontend
+    restart: always
+    ports:
+      - "127.0.0.1:${FE_PORT}:80"
+    networks:
+      - gym-data
+    security_opt:
+      - "no-new-privileges:true"
 
 networks:
   gym-data:

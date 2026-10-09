@@ -1,21 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HOST="${1:-127.0.0.1}"
-PORT="${2:-8001}"
-MAX_RETRIES=5
-SLEEP_INTERVAL=2
+SLOT="${1:-green}"
 
-echo "Running smoke test on http://${HOST}:${PORT}/..."
+if [ "$SLOT" = "green" ]; then
+    PORT="8102"
+else
+    PORT="8101"
+fi
 
-for ((i=1; i<=MAX_RETRIES; i++)); do
-    if curl -s -f "http://${HOST}:${PORT}/" > /dev/null 2>&1; then
-        echo "Smoke test PASSED on attempt ${i}."
+URL="http://127.0.0.1:${PORT}/health"
+MAX_ATTEMPTS=5
+
+echo "Running smoke test on ${URL}..."
+
+for i in $(seq 1 $MAX_ATTEMPTS); do
+    if curl -s -f "$URL" > /dev/null; then
+        echo "SUCCESS: Smoke test PASSED for ${SLOT} slot on port ${PORT}."
         exit 0
     fi
-    echo "Attempt ${i}/${MAX_RETRIES} failed. Retrying in ${SLEEP_INTERVAL}s..."
-    sleep "${SLEEP_INTERVAL}"
+    echo "Attempt $i/$MAX_ATTEMPTS failed. Retrying in 2s..."
+    sleep 2
 done
 
-echo "Smoke test FAILED after ${MAX_RETRIES} attempts."
+echo "Smoke test FAILED after $MAX_ATTEMPTS attempts."
 exit 1

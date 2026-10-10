@@ -46,6 +46,8 @@ if /opt/gym/devops/scripts/smoke.sh "${CANDIDATE_SLOT}"; then
   write_active_slot "${CANDIDATE_SLOT}"
   
   log "Deployment SUCCESSFUL! Active slot is now ${CANDIDATE_SLOT}."
+  notify_discord "🚀 **[DEPLOY]** Successfully deployed to slot **${CANDIDATE_SLOT}** (Zero-Downtime Blue/Green switch complete)!"
+  notify_discord "🚀 **[DEPLOY]** Successfully deployed to slot **${CANDIDATE_SLOT}** (Zero-Downtime Blue/Green switch complete)!"
   
   sleep 5
   docker compose -p "gym-${CURRENT_SLOT}" -f "$COMPOSE_DIR/compose.slot.yml" stop

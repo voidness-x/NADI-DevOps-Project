@@ -76,3 +76,25 @@ compose_slot() {
   local slot=$1; shift
   docker compose -p "gym-$slot" -f "$COMPOSE_DIR/compose.slot.yml" "$@"
 }
+
+notify_discord() {
+  local msg="$1"
+  if [ -f "/etc/gym/notify.env" ]; then
+    source /etc/gym/notify.env
+    if [ -n "${DISCORD_WEBHOOK_URL:-}" ]; then
+      curl -s -X POST -H "Content-Type: application/json" \
+        -d "{\"content\":\"$msg\"}" "$DISCORD_WEBHOOK_URL" > /dev/null || true
+    fi
+  fi
+}
+
+notify_discord() {
+  local msg="$1"
+  if [ -f "/etc/gym/notify.env" ]; then
+    set -a; source /etc/gym/notify.env; set +a
+    if [ -n "${DISCORD_WEBHOOK_URL:-}" ]; then
+      curl -s -X POST -H "Content-Type: application/json" \
+        -d "{\"content\":\"$msg\"}" "$DISCORD_WEBHOOK_URL" > /dev/null || true
+    fi
+  fi
+}

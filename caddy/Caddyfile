@@ -1,0 +1,62 @@
+{
+	admin localhost:2019
+	metrics
+	skip_install_trust
+	default_sni 178.18.249.160
+}
+
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}
+
+# ── Public App Ingress: Dashboard + API + APK + Webhook ────────────
+178.18.249.160:8000, localhost:8000, 127.0.0.1:8000 {
+	tls internal
+	encode zstd gzip
+	import security_headers
+
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 10mb
+			roll_keep 5
+		}
+		format json
+	}
+
+	handle /hooks/* {
+		@notpost not method POST
+		respond @notpost 405
+		request_body {
+			max_size 2MB
+		}
+		reverse_proxy 127.0.0.1:9000
+	}
+
+	redir /download /download/ 308
+	handle_path /download/* {
+		root * /srv/apk
+		@apk path *.apk
+		header @apk {
+			Content-Type application/vnd.android.package-archive
+			Content-Disposition attachment
+		}
+		@meta path /version.json /index.html /
+		header @meta Cache-Control "no-cache"
+		file_server
+	}
+
+	import /etc/caddy/slots/active.caddy
+}
+
+# ── Admin Ingress: Grafana Reverse Proxy ───────────────────────────
+178.18.249.160:3000, localhost:3000, 127.0.0.1:3000 {
+	tls internal
+	import security_headers
+	reverse_proxy 127.0.0.1:3030
+}

@@ -15,9 +15,9 @@ import (
 )
 
 type Config struct {
-	ListenAddr   string                  `json:"listen_addr"`
-	SecretFile   string                  `json:"secret_file"`
-	Repositories map[string]RepoConfig   `json:"repositories"`
+	ListenAddr   string                `json:"listen_addr"`
+	SecretFile   string                `json:"secret_file"`
+	Repositories map[string]RepoConfig `json:"repositories"`
 }
 
 type RepoConfig struct {
@@ -27,9 +27,13 @@ type RepoConfig struct {
 
 type GithubPayload struct {
 	Ref        string `json:"ref"`
+	Action     string `json:"action"`
 	Repository struct {
 		Name string `json:"name"`
 	} `json:"repository"`
+	Release struct {
+		TagName string `json:"tag_name"`
+	} `json:"release"`
 }
 
 var (
@@ -39,17 +43,17 @@ var (
 )
 
 func verifySignature(payload []byte, signatureHeader string) bool {
-	if !strings.HasPrefix(signatureHeader, "sha256=") {
+	const prefix = "sha256="
+	if !strings.HasPrefix(signatureHeader, prefix) {
 		return false
 	}
-	signature, err := hex.DecodeString(strings.TrimPrefix(signatureHeader, "sha256="))
+	signature, err := hex.DecodeString(strings.TrimPrefix(signatureHeader, prefix))
 	if err != nil {
 		return false
 	}
 	mac := hmac.New(sha256.New, secret)
 	mac.Write(payload)
-	expectedMAC := mac.Sum(nil)
-	return hmac.Equal(signature, expectedMAC)
+	return hmac.Equal(signature, mac.Sum(nil))
 }
 
 func handleWebhook(w http.ResponseWriter, r *http.Request) {
@@ -60,69 +64,99 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, "BadRequest", http.StatusBadRequest)
+		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
 
 	sig := r.Header.Get("X-Hub-Signature-256")
 	if !verifySignature(body, sig) {
-		log.Println("Unauthorized webhook attempt: invalid signature")
+		log.Println("WARNING: Unauthorized webhook attempt - invalid HMAC signature")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	var payload GithubPayload
 	if err := json.Unmarshal(body, &payload); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		http.Error(w, "Invalid JSON Payload", http.StatusBadRequest)
 		return
 	}
 
 	repoName := payload.Repository.Name
 	repoCfg, exists := config.Repositories[repoName]
 	if !exists {
-		log.Printf("Ignored webhook for unmapped repository: %s\n", repoName)
+		log.Printf("INFO: Ignored webhook trigger for unmapped repository: %s\n", repoName)
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Ignored: repo not configured"))
+		w.Write([]byte("Ignored: repository not configured"))
 		return
 	}
 
-	go func() {
-		jobMu.Lock()
-		defer jobMu.Unlock()
+	// 1. Mobile Release Event (Nadi-Flutter)
+	if payload.Action == "published" && payload.Release.TagName != "" {
+		tag := payload.Release.TagName
+		log.Printf("INFO: Valid release event published for %s (tag: %s). Fetching APK...\n", repoName, tag)
+		go func() {
+			jobMu.Lock()
+			defer jobMu.Unlock()
+			cmd := exec.Command("/opt/gym/devops/scripts/fetch-apk.sh", tag)
+			cmd.Dir = "/opt/gym/devops"
+			cmd.Env = append(os.Environ(), "USER=deploy", "HOME=/opt/gym")
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				log.Printf("ERROR: fetch-apk.sh failed for %s (%s): %v\nOutput:\n%s\n", repoName, tag, err, string(out))
+				return
+			}
+			log.Printf("SUCCESS: fetch-apk.sh completed for %s (%s):\n%s\n", repoName, tag, string(out))
+		}()
 
-		log.Printf("Executing trigger for repo: %s via script %s\n", repoName, repoCfg.Script)
-		cmd := exec.Command(repoCfg.Script, repoCfg.Args...)
-		cmd.Dir = "/opt/gym/devops"
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			log.Printf("Execution failed for %s: %v\nOutput:\n%s\n", repoName, err, string(out))
-		} else {
-			log.Printf("Execution succeeded for %s\nOutput:\n%s\n", repoName, string(out))
-		}
-	}()
+		w.WriteHeader(http.StatusAccepted)
+		w.Write([]byte(`{"status":"Accepted","message":"APK fetch triggered successfully"}`))
+		return
+	}
 
-	w.WriteHeader(http.StatusAccepted)
-	w.Write([]byte("Deployment trigger accepted"))
+	// 2. Standard Code Push Event (main branch for Backend & Frontend)
+	if payload.Ref == "refs/heads/main" {
+		log.Printf("INFO: Valid push event received for %s on main branch. Triggering deployment script...\n", repoName)
+		go func() {
+			jobMu.Lock()
+			defer jobMu.Unlock()
+			cmd := exec.Command(repoCfg.Script, repoCfg.Args...)
+			cmd.Dir = "/opt/gym/devops"
+			cmd.Env = append(os.Environ(), "USER=deploy", "HOME=/opt/gym")
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				log.Printf("ERROR: Deployment script failed for %s: %v\nOutput:\n%s\n", repoName, err, string(out))
+				return
+			}
+			log.Printf("SUCCESS: Deployment completed successfully for %s\nOutput:\n%s\n", repoName, string(out))
+		}()
+
+		w.WriteHeader(http.StatusAccepted)
+		w.Write([]byte(`{"status":"Accepted","message":"Deployment triggered successfully"}`))
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"Ignored","message":"Event not actionable"}`))
 }
 
 func main() {
 	cfgData, err := os.ReadFile("/etc/gym/webhook.json")
 	if err != nil {
-		log.Fatalf("Failed to read config file: %v", err)
+		log.Fatalf("Fatal: Failed to read config file /etc/gym/webhook.json: %v", err)
 	}
 	if err := json.Unmarshal(cfgData, &config); err != nil {
-		log.Fatalf("Failed to parse json config: %v", err)
+		log.Fatalf("Fatal: Failed to parse webhook JSON config: %v", err)
 	}
 
 	secData, err := os.ReadFile(config.SecretFile)
 	if err != nil {
-		log.Fatalf("Failed to read secret file: %v", err)
+		log.Fatalf("Fatal: Failed to read secret file %s: %v", config.SecretFile, err)
 	}
 	secret = []byte(strings.TrimSpace(string(secData)))
 
 	http.HandleFunc("/hooks/deploy", handleWebhook)
 	log.Printf("Starting Webhook Daemon listening on %s...\n", config.ListenAddr)
 	if err := http.ListenAndServe(config.ListenAddr, nil); err != nil {
-		log.Fatalf("Server stopped: %v", err)
+		log.Fatalf("Fatal: Webhook daemon stopped: %v", err)
 	}
 }

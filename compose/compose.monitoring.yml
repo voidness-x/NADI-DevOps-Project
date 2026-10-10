@@ -18,6 +18,20 @@ services:
     networks:
       - gym-data
 
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: gym-alertmanager
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    volumes:
+      - /opt/gym/devops/monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    secrets:
+      - discord_webhook_url
+    networks:
+      - gym-data
+
   postgres_exporter:
     image: prometheuscommunity/postgres-exporter:v0.15.0
     container_name: gym-postgres-exporter
@@ -53,6 +67,8 @@ secrets:
     file: /etc/gym/secrets/grafana_admin_password
   pg_dsn:
     file: /etc/gym/secrets/pg_dsn
+  discord_webhook_url:
+    file: /etc/gym/secrets/discord_webhook_url
 
 volumes:
   prometheus_data:

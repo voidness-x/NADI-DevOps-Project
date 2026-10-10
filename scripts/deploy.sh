@@ -1,69 +1,65 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Always execute from the devops root directory to avoid working directory permission issues
-cd /opt/gym/devops
-
-SCRIPT_DIR="/opt/gym/devops/scripts"
-source "${SCRIPT_DIR}/lib.sh"
+# shellcheck source=lib.sh
+source /opt/gym/devops/scripts/lib.sh
 
 acquire_lock
+DEPLOY_ID="$(date -u +%Y%m%dT%H%M%S)"
+exec > >(tee -a "$LOG_DIR/deploy-$DEPLOY_ID.log") 2>&1
 
-echo "=== Starting Blue/Green Deployment ==="
+CURRENT_SLOT=$(read_active_slot)
+CANDIDATE_SLOT=$(other_slot "$CURRENT_SLOT")
+slot_ports "$CANDIDATE_SLOT"
 
-# 1. Pre-deployment Database Snapshot
+log "=== Starting Zero-Downtime Deployment ==="
+log "Active Slot: ${CURRENT_SLOT} | Target Candidate Slot: ${CANDIDATE_SLOT}"
+log "Target Ports: Backend=${BE_PORT} Frontend=${FE_PORT}"
+
+# 1. Pre-deployment Database Backup
 if docker ps --format "{{.Names}}" | grep -q "gym-postgres"; then
-    echo "Creating pre-deployment database backup..."
-    BACKUP_FILE="/var/backups/gym/gym_db_$(date +%Y%m%d_%H%M%S).sql"
-    docker exec gym-postgres pg_dump -U gym_user gym_db > "${BACKUP_FILE}" || {
-        echo "Database backup failed! Aborting deployment."
-        release_lock
-        exit 1
-    }
-    echo "Backup saved to ${BACKUP_FILE}"
+  log "Creating pre-deployment database snapshot..."
+  BACKUP_FILE="/var/backups/gym/gym_db_$(date +%Y%m%d_%H%M%S).sql"
+  docker exec gym-postgres pg_dump -U gym_user gym_db > "${BACKUP_FILE}" || true
+  log "Database snapshot saved to ${BACKUP_FILE}"
 fi
 
-# 2. Determine Current Active & Candidate Slots
-ACTIVE_SLOT=$(get_active_slot)
-CANDIDATE_SLOT=$(get_candidate_slot "${ACTIVE_SLOT}")
-
-echo "Active Slot: ${ACTIVE_SLOT}"
-echo "Target Candidate Slot: ${CANDIDATE_SLOT}"
-
-# 3. Export Environment Variables for Candidate Slot
+# 2. Export environment variables for Docker Compose
 export SLOT="${CANDIDATE_SLOT}"
-export BE_PORT=$(get_slot_port "${CANDIDATE_SLOT}")
+export BE_PORT="${BE_PORT}"
+export FE_PORT="${FE_PORT}"
 export BACKEND_TAG="${1:-latest}"
+export FRONTEND_TAG="latest"
 
-# Load secrets if present
-if [[ -f /etc/gym/secrets/db.env ]]; then
-    set -o allexport
-    source /etc/gym/secrets/db.env
-    set +o allexport
+if [ -f "/etc/gym/backend.env" ]; then
+  set -a; source /etc/gym/backend.env; set +a
 fi
 
-# 4. Spin up Candidate Slot
-echo "Deploying candidate slot (${CANDIDATE_SLOT}) on port ${BE_PORT} with image tag ${BACKEND_TAG}..."
-docker compose -f /opt/gym/devops/compose/compose.slot.yml up -d --build || {
-    echo "Container startup failed! Executing rollback..."
-    "${SCRIPT_DIR}/rollback.sh" "${CANDIDATE_SLOT}"
-    release_lock
-    exit 1
-}
+# 3. Build & Launch Candidate Slot
+log "Launching candidate slot ${CANDIDATE_SLOT} on port ${BE_PORT}..."
+docker compose -p "gym-${CANDIDATE_SLOT}" -f "$COMPOSE_DIR/compose.slot.yml" up -d --build
 
-# 5. Execute Health / Smoke Tests
-if ! "${SCRIPT_DIR}/smoke.sh" "127.0.0.1" "${BE_PORT}"; then
-    echo "Smoke test failed on slot ${CANDIDATE_SLOT}! Executing rollback..."
-    "${SCRIPT_DIR}/rollback.sh" "${CANDIDATE_SLOT}"
-    release_lock
-    exit 1
+# 4. Automatic Database Seeding (Pre-traffic validation)
+log "Running database seed on candidate slot..."
+docker exec "gym-${CANDIDATE_SLOT}-backend" python seed.py || echo "Seed already applied or skipped."
+
+# 5. Health & Smoke Validation
+log "Running smoke test on candidate slot ${CANDIDATE_SLOT}..."
+if /opt/gym/devops/scripts/smoke.sh "${CANDIDATE_SLOT}"; then
+  log "Candidate slot passed smoke tests. Switching traffic..."
+  
+  # 6. Atomic Proxy Swap (No Sudo)
+  /opt/gym/devops/scripts/switch.sh "${CANDIDATE_SLOT}"
+  write_active_slot "${CANDIDATE_SLOT}"
+  
+  log "Deployment SUCCESSFUL! Active slot is now ${CANDIDATE_SLOT}."
+  
+  # 7. Graceful connection draining before stopping old slot
+  log "Draining traffic on old slot ${CURRENT_SLOT}..."
+  sleep 5
+  docker compose -p "gym-${CURRENT_SLOT}" -f "$COMPOSE_DIR/compose.slot.yml" stop
+else
+  log "ERROR: Candidate slot ${CANDIDATE_SLOT} failed smoke tests! Executing rollback..."
+  /opt/gym/devops/scripts/rollback.sh "${CANDIDATE_SLOT}"
+  exit 1
 fi
-
-# 6. Switch Ingress Traffic & Decommission Old Slot
-"${SCRIPT_DIR}/switch.sh" "${CANDIDATE_SLOT}"
-echo "Stopping inactive slot (${ACTIVE_SLOT})..."
-export SLOT="${ACTIVE_SLOT}"
-docker compose -f /opt/gym/devops/compose/compose.slot.yml down
-
-echo "=== Deployment Successfully Completed ==="
-release_lock

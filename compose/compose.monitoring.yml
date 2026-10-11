@@ -10,9 +10,9 @@ services:
       - /opt/gym/devops/monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus_data:/prometheus
     command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.enable-lifecycle'
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -23,12 +23,10 @@ services:
     container_name: gym-alertmanager
     restart: unless-stopped
     command:
-      - '--config.file=/etc/alertmanager/alertmanager.yml'
-      - '--storage.path=/alertmanager'
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
     volumes:
       - /opt/gym/devops/monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-    secrets:
-      - discord_webhook_url
     networks:
       - gym-data
 
@@ -37,9 +35,7 @@ services:
     container_name: gym-postgres-exporter
     restart: unless-stopped
     environment:
-      DATA_SOURCE_NAME_FILE: /run/secrets/pg_dsn
-    secrets:
-      - pg_dsn
+      DATA_SOURCE_NAME: "postgresql://gym_user:REPLACE_WITH_POSTGRES_PASSWORD@gym-postgres:5432/gym_db?sslmode=disable"
     networks:
       - gym-data
 
@@ -65,10 +61,6 @@ services:
 secrets:
   grafana_admin_password:
     file: /etc/gym/secrets/grafana_admin_password
-  pg_dsn:
-    file: /etc/gym/secrets/pg_dsn
-  discord_webhook_url:
-    file: /etc/gym/secrets/discord_webhook_url
 
 volumes:
   prometheus_data:

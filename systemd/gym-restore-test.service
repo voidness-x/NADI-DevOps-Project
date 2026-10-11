@@ -1,0 +1,15 @@
+[Unit]
+Description=Gym weekly restore test
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash /opt/gym/devops/scripts/restore-test.sh
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=1h
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full

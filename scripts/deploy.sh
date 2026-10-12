@@ -71,6 +71,7 @@ if /opt/gym/devops/scripts/smoke.sh "${CANDIDATE_SLOT}"; then
   docker compose -p "gym-${CURRENT_SLOT}" -f "$COMPOSE_DIR/compose.slot.yml" stop
 else
   log "ERROR: Candidate slot ${CANDIDATE_SLOT} failed smoke tests! Executing rollback..."
+  notify_discord "⚠️ **[ROLLBACK]** Candidate slot **${CANDIDATE_SLOT}** failed smoke tests. Rolled back to **${CURRENT_SLOT}**."
   /opt/gym/devops/scripts/rollback.sh "${CANDIDATE_SLOT}"
   exit 1
 fi

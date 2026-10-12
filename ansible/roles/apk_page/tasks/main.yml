@@ -1,0 +1,22 @@
+---
+- name: APK download page
+  ansible.builtin.copy:
+    src: /opt/gym/devops/apk-page/index.html
+    dest: /srv/apk/index.html
+    remote_src: true
+    owner: deploy
+    group: deploy
+    mode: "0644"
+  failed_when: false
+
+- name: Write fetch-apk.env
+  ansible.builtin.copy:
+    dest: /etc/gym/fetch-apk.env
+    content: |
+      GITHUB_REPO={{ github_org }}/Nadi-Mobile
+      GITHUB_TOKEN={{ fetch_apk_token }}
+      APK_KEEP=3
+    owner: root
+    group: deploy
+    mode: "0640"
+  no_log: true

@@ -1,0 +1,55 @@
+---
+- name: Caddy directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: /etc/caddy, owner: root, group: caddy, mode: "0755"}
+    - {path: /etc/caddy/slots, owner: deploy, group: caddy, mode: "0755"}
+    - {path: /var/log/caddy, owner: caddy, group: caddy, mode: "0750"}
+
+- name: Slot files
+  ansible.builtin.template:
+    src: slot.caddy.j2
+    dest: "/etc/caddy/slots/{{ item.name }}.caddy"
+    owner: root
+    group: caddy
+    mode: "0644"
+  loop:
+    - {name: blue, backend: 8101, frontend: 8201}
+    - {name: green, backend: 8102, frontend: 8202}
+  notify: Reload caddy
+
+- name: Check active slot symlink
+  ansible.builtin.stat:
+    path: /etc/caddy/slots/active.caddy
+    follow: false
+  register: caddy_active_link
+
+- name: Create active.caddy link ONLY if missing
+  ansible.builtin.file:
+    src: blue.caddy
+    dest: /etc/caddy/slots/active.caddy
+    state: link
+    owner: deploy
+    group: caddy
+  when: not caddy_active_link.stat.exists
+
+- name: Install Caddyfile
+  ansible.builtin.template:
+    src: Caddyfile.j2
+    dest: /etc/caddy/Caddyfile
+    owner: root
+    group: caddy
+    mode: "0644"
+    validate: caddy validate --adapter caddyfile --config %s
+  notify: Reload caddy
+
+- name: Caddy service running
+  ansible.builtin.systemd_service:
+    name: caddy
+    enabled: true
+    state: started

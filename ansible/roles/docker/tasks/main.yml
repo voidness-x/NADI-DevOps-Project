@@ -1,0 +1,33 @@
+---
+- name: Docker daemon config
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    content: |
+      {
+        "selinux-enabled": true,
+        "live-restore": true,
+        "log-driver": "json-file",
+        "log-opts": {"max-size": "10m", "max-file": "3"},
+        "metrics-addr": "127.0.0.1:9323"
+      }
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart docker
+
+- name: Docker service running
+  ansible.builtin.systemd_service:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Deploy user in docker group
+  ansible.builtin.user:
+    name: deploy
+    groups: docker
+    append: true
+
+- name: Ensure gym-data network exists
+  ansible.builtin.shell: |
+    docker network inspect gym-data >/dev/null 2>&1 || docker network create gym-data
+  changed_when: false

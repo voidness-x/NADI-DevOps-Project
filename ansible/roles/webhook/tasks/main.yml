@@ -1,0 +1,16 @@
+---
+- name: Webhook secret file
+  ansible.builtin.copy:
+    dest: /etc/gym/webhook.env
+    content: "WEBHOOK_SECRET={{ webhook_secret }}\n"
+    owner: root
+    group: deploy
+    mode: "0640"
+  no_log: true
+  notify: Restart webhook
+
+- name: Ensure gym-webhook service enabled
+  ansible.builtin.systemd_service:
+    name: gym-webhook
+    enabled: true
+    state: started

@@ -1,0 +1,33 @@
+---
+- name: SELinux Enforcing
+  ansible.posix.selinux:
+    policy: targeted
+    state: enforcing
+
+- name: Persistent file contexts
+  community.general.sefcontext:
+    target: "{{ item.path }}(/.*)?"
+    setype: "{{ item.setype }}"
+    state: present
+  loop:
+    - {path: /srv/gym/uploads, setype: container_file_t}
+    - {path: /srv/gym/monitoring, setype: container_file_t}
+    - {path: /etc/gym/secrets, setype: container_file_t}
+    - {path: /srv/apk, setype: httpd_sys_content_t}
+
+- name: Allow HTTP ports in SELinux
+  community.general.seport:
+    ports: "{{ item }}"
+    proto: tcp
+    setype: http_port_t
+    state: present
+  loop:
+    - "{{ app_port }}"
+    - "{{ admin_port }}"
+  failed_when: false
+
+- name: Allow Caddy loopback connects
+  ansible.posix.seboolean:
+    name: httpd_can_network_connect
+    state: true
+    persistent: true

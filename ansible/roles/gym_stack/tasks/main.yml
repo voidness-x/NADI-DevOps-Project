@@ -1,0 +1,47 @@
+---
+- name: Deploy environment files
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/gym/{{ item }}"
+    owner: root
+    group: deploy
+    mode: "0640"
+  loop: [deploy.env, notify.env, backend.env]
+  no_log: true
+
+- name: Postgres password secret file
+  ansible.builtin.copy:
+    dest: /etc/gym/secrets/postgres_password
+    content: "{{ postgres_password }}"
+    owner: root
+    group: deploy
+    mode: "0444"
+  no_log: true
+
+- name: Polkit authorization rule
+  ansible.builtin.copy:
+    src: /opt/gym/devops/polkit/50-gym-deploy.rules
+    dest: /etc/polkit-1/rules.d/50-gym-deploy.rules
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0644"
+  failed_when: false
+
+- name: Shared PostgreSQL container running
+  ansible.builtin.command: docker compose -f /opt/gym/devops/compose/compose.infra.yml up -d
+  register: compose_infra
+  changed_when: compose_infra.stderr is search('Created|Recreated|Started')
+  become: true
+  become_user: deploy
+
+- name: Check if release exists
+  ansible.builtin.stat:
+    path: /opt/gym/state/releases.env
+  register: releases_env_stat
+
+- name: Run bootstrap ONLY if releases.env missing
+  ansible.builtin.command: /opt/gym/devops/scripts/bootstrap.sh
+  when: not releases_env_stat.stat.exists
+  become: true
+  become_user: deploy

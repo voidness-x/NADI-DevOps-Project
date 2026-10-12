@@ -1,0 +1,41 @@
+---
+- name: Escrowed backup passphrase from Vault
+  ansible.builtin.copy:
+    dest: /etc/gym/backup/passphrase
+    content: "{{ backup_passphrase }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Backup configuration file
+  ansible.builtin.template:
+    src: backup.env.j2
+    dest: /etc/gym/backup.env
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Systemd units from devops repo
+  ansible.builtin.copy:
+    src: "/opt/gym/devops/systemd/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - gym-backup.service
+    - gym-backup.timer
+    - gym-restore-test.service
+    - gym-restore-test.timer
+  notify: Reload systemd
+
+- name: Backup timers enabled
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - gym-backup.timer
+    - gym-restore-test.timer

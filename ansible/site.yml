@@ -1,0 +1,23 @@
+---
+- name: Gym server — full build from a fresh AlmaLinux install
+  hosts: all
+  become: true
+  pre_tasks:
+    - name: Refuse anything that is not EL 9/10
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['os_family'] == 'RedHat'
+          - ansible_facts['distribution_major_version'] | int in [9, 10]
+        fail_msg: "This playbook targets AlmaLinux/RHEL 9 or 10."
+  roles:
+    - {role: common, tags: [common]}
+    - {role: ssh, tags: [ssh]}
+    - {role: firewall, tags: [firewall]}
+    - {role: selinux, tags: [selinux]}
+    - {role: docker, tags: [docker]}
+    - {role: caddy, tags: [caddy]}
+    - {role: gym_stack, tags: [stack]}
+    - {role: backup, tags: [backup]}
+    - {role: webhook, tags: [webhook]}
+    - {role: monitoring, tags: [monitoring]}
+    - {role: apk_page, tags: [apk]}

@@ -1,0 +1,30 @@
+---
+- name: Container secrets
+  ansible.builtin.copy:
+    dest: "/etc/gym/secrets/{{ item.name }}"
+    content: "{{ item.value }}"
+    owner: root
+    group: deploy
+    mode: "0444"
+  loop:
+    - {name: grafana_admin_password, value: "{{ grafana_admin_password }}"}
+    - {name: pg_monitor_password, value: "{{ pg_monitor_password }}"}
+    - {name: discord_webhook_url, value: "{{ discord_webhook_url }}"}
+  no_log: true
+
+- name: Monitoring environment file
+  ansible.builtin.copy:
+    dest: /etc/gym/monitoring.env
+    content: "GRAFANA_ROOT_URL=https://{{ public_host }}:{{ admin_port }}/\n"
+    owner: root
+    group: deploy
+    mode: "0640"
+
+- name: Monitoring stack running
+  ansible.builtin.command: >-
+    docker compose --env-file /etc/gym/monitoring.env
+    -f /opt/gym/devops/compose/compose.monitoring.yml up -d
+  register: compose_mon
+  changed_when: compose_mon.stderr is search('Created|Recreated|Started')
+  become: true
+  become_user: deploy

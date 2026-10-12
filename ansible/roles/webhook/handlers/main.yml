@@ -1,0 +1,5 @@
+---
+- name: Restart webhook
+  ansible.builtin.systemd_service:
+    name: gym-webhook
+    state: restarted

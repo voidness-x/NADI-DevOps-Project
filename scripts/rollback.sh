@@ -1,12 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source /opt/gym/devops/scripts/lib.sh
 
-CANDIDATE_SLOT="${1:-green}"
+if [ -f "/etc/gym/backend.env" ]; then
+  set -a; source /etc/gym/backend.env; set +a
+fi
+
+CURRENT_SLOT=$(read_active_slot)
+FAILED_SLOT="${1:-$(other_slot "$CURRENT_SLOT")}"
+slot_ports "$FAILED_SLOT"
+
+export SLOT="$FAILED_SLOT"
+export BE_PORT="$BE_PORT"
+export FE_PORT="$FE_PORT"
 
 echo "=== Executing Rollback ==="
-echo "Tearing down failed candidate slot (${CANDIDATE_SLOT})..."
+echo "Tearing down failed candidate slot ($FAILED_SLOT)..."
 
-export SLOT="${CANDIDATE_SLOT}"
-docker compose -f /opt/gym/devops/compose/compose.slot.yml down || true
+docker compose -p "gym-$FAILED_SLOT" -f "$COMPOSE_DIR/compose.slot.yml" down --remove-orphans || true
 
-echo "Rollback completed. Active slot unchanged."
+echo "Rollback completed. Active slot unchanged ($CURRENT_SLOT)."

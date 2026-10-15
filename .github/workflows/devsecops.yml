@@ -1,0 +1,73 @@
+name: DevSecOps Vulnerability & Security Gate
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  security-audit:
+    name: Security & Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout DevOps Repository
+        uses: actions/checkout@v4
+
+      - name: Run Trivy Security Vulnerability Scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'json'
+          output: 'trivy-report.json'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      - name: Evaluate Findings and Dispatch Discord Alert
+        if: always()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ ! -f trivy-report.json ]; then
+            echo "No scan report generated; exiting."
+            exit 0
+          fi
+
+          CVE_COUNT=$(jq '[.Results[]?.Vulnerabilities[]?] | length' trivy-report.json 2>/dev/null || echo 0)
+
+          if [ "$CVE_COUNT" -gt 0 ]; then
+            echo "Security Alert: Detected $CVE_COUNT High/Critical CVEs."
+            
+            SUMMARY=$(jq -r '[.Results[]?.Vulnerabilities[]? | "- " + .VulnerabilityID + " (" + .PkgName + " " + .InstalledVersion + " -> Fixed: " + (.FixedVersion // "N/A") + ")"] | unique | .[0:8] | join("\n")' trivy-report.json)
+
+            PAYLOAD=$(jq -n \
+              --arg title "🚨 DEVSECOPS SECURITY ALERT: High/Critical Vulnerabilities Detected" \
+              --arg repo "${{ github.repository }}" \
+              --arg commit "${{ github.sha }}" \
+              --arg branch "${{ github.ref_name }}" \
+              --arg count "$CVE_COUNT" \
+              --arg summary "$SUMMARY" \
+              '{
+                "embeds": [{
+                  "title": $title,
+                  "color": 15158332,
+                  "fields": [
+                    {"name": "Repository", "value": $repo, "inline": true},
+                    {"name": "Branch", "value": $branch, "inline": true},
+                    {"name": "Vulnerabilities Found", "value": $count, "inline": true},
+                    {"name": "Detected CVEs / Packages", "value": ("```\n" + $summary + "\n```")},
+                    {"name": "Policy", "value": "Build passed (Continuous deployment allowed). Review dependencies in next maintenance window."}
+                  ],
+                  "footer": {"text": "Nadi DevSecOps Gate"},
+                  "timestamp": (now | todate)
+                }]
+              }')
+
+            if [ -n "$DISCORD_WEBHOOK" ]; then
+              curl -s -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK" || true
+            fi
+          else
+            echo "Clean: Zero High or Critical CVEs detected."
+          fi

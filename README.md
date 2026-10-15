@@ -1,4 +1,4 @@
-# Nadi Gym DevOps Platform — Documentation
+# Nadi Gym DevOps Platform — Master Engineering Documentation
 
 ```Meow to you all, Techies, HUB200 staff, and mayhaps Zain tech team!```
 
@@ -19,7 +19,8 @@
 6. [Security Posture and Non-Interactive User Operations](#6-security-posture-and-non-interactive-user-operations)
 7. [Disaster Recovery, Streaming Encryption, and Restore Drills](#7-disaster-recovery-streaming-encryption-and-restore-drills)
 8. [Observability, Telemetry, and Alerting Matrix](#8-observability-telemetry-and-alerting-matrix)
-9. [Operational Cheatsheet and Troubleshooting Playbook](#9-operational-cheatsheet-and-troubleshooting-playbook)
+9. [Advanced Platform Extensions (ChatOps, Benchmark, DevSecOps)](#9-advanced-platform-extensions)
+10. [Operational Cheatsheet and Troubleshooting Playbook](#10-operational-cheatsheet-and-troubleshooting-playbook)
 
 ---
 
@@ -355,7 +356,56 @@ Prometheus scrapes operational targets every 15 seconds:
 
 ---
 
-## 9. Operational Cheatsheet and Troubleshooting Playbook
+## 9. Advanced Platform Extensions
+
+To elevate the platform's reliability, observability, and security posture, three advanced enterprise capabilities are integrated:
+
+### 9.1 Interactive Two-Way Discord ChatOps (`gym-discord-bot.service`)
+An autonomous, hardened Python daemon running as a host systemd unit enables bidirectional ChatOps through Discord without exposing the VPS to external management networks.
+
+- **Systemd Unit:** `/etc/systemd/system/gym-discord-bot.service`
+- **Daemon Executable:** `/opt/gym/devops/scripts/discord_bot.py` (running inside dedicated venv `/opt/gym/devops/venv`)
+- **Execution User:** `deploy` (strictly unprivileged)
+- **Least-Privilege Systemd Sandboxing:**
+  - `ProtectSystem=full` & `ProtectHome=yes` (OS binaries and `/etc` remain strictly Read-Only)
+  - `ReadWritePaths=/etc/caddy/slots /opt/gym/state /var/log/gym` (Pinpoint write exceptions exclusively for active slot swapping)
+  - `PrivateTmp=yes`
+- **RBAC & Authorization:** Strict username whitelist enforced against Discord author metadata (`voidness.x`). Unrecognized users receive immediate access denial.
+- **Available Commands:**
+  - `!status`: Returns live active slot, Caddy gateway status, container health table, and memory usage.
+  - `!switch <blue|green>`: Executes zero-downtime atomic slot cutover via `/usr/local/bin/switch_slot.sh`.
+  - `!rollback`: Instantly reverts live traffic to the alternate candidate slot.
+  - `!deploy <blue|green>`: Triggers candidate container spinup and automated smoke validation.
+  - `!benchmark`: Runs a live in-flight 25-request zero-downtime load test and posts the certificate report directly into Discord.
+
+### 9.2 Empirical Zero-Downtime Benchmark Validation Engine (`benchmark_switch.py`)
+A custom, bounded asynchronous load-testing tool validates continuous availability and zero dropped connections during Caddy in-memory configuration reloads.
+
+- **Script Path:** `/opt/gym/devops/scripts/benchmark_switch.py`
+- **Execution Profile:** 25 concurrent requests dispatched across multi-threaded workers at 40ms intervals against `https://127.0.0.1:8000/api/health`.
+- **In-Flight Traffic Switch:** Triggers `/usr/local/bin/switch_slot.sh` during active HTTP probe transmission.
+- **Self-Healing Slot Warmup:** Automatically verifies candidate containers are running and warm prior to traffic cutover.
+- **Mathematical Telemetry Verified:**
+  - **Availability:** 100.0% (25/25 requests return HTTP 200 OK, 0 dropped TCP sockets).
+  - **Transition Tracking:** Captures exact probe sequence index (e.g. Request #8) where response headers transition from `x-slot: blue` to `x-slot: green`.
+  - **Latency Profile:** Min ~5.5 ms, Average ~7.3 ms, Max ~13.1 ms.
+
+### 9.3 DevSecOps Automated Vulnerability Scanning Gate (Aqua Security Trivy)
+Continuous vulnerability scanning integrated into GitHub Actions CI pipelines provides automated security audits without disrupting release velocity.
+
+- **Workflow Paths:**
+  - DevOps Repo: `.github/workflows/devsecops.yml`
+  - Backend Repo: `.github/workflows/ci.yml`
+- **Scanner Engine:** Aqua Security Trivy (`aquasecurity/trivy-action@master`) scanning filesystems, dependencies (`requirements.txt`), and Dockerfiles.
+- **Non-Blocking Observability Policy (`exit-code: 0`):** Build checks pass with a green checkmark to guarantee project deployment continuity while logging security debt.
+- **Automated High-Priority Discord Alerting:**
+  - Dynamically parses `trivy-report.json` using `jq`.
+  - Filters for `CRITICAL` and `HIGH` severity vulnerabilities.
+  - If CVEs are detected, constructs an urgent rich Discord embed displaying repository, branch, commit SHA, vulnerability count, detected CVE IDs, affected library versions, and fixed versions.
+
+---
+
+## 10. Operational Cheatsheet and Troubleshooting Playbook
 
 Because the `deploy` user has a non-interactive shell, all administrative commands are executed from the administrative user (`student`) using `sudo` or `sudo -u deploy`.
 

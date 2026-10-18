@@ -3,3 +3,8 @@ webhook/gym-webhook
 
 # Runtime deployment state
 state/
+
+# Python virtual environment & cache
+venv/
+__pycache__/
+*.py[cod]

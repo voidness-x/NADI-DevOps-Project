@@ -3,12 +3,12 @@ admin_user: student
 server_hostname: gym-server
 server_timezone: America/New_York
 
-# Ports configuration
-ssh_listen_port: 22
+# Domain & Ports configuration
+domain_name: "nadi-gym.duckdns.org"
+public_host: "178.18.249.160"
 app_port: 8000
 admin_port: 3000
-public_host: "178.18.249.160"
-tls_path: internal
+duckdns_token: "REPLACE_WITH_DUCKDNS_TOKEN"
 
 # Application settings
 github_org: "Techies-Lab-Projects-01-Nadi"

@@ -2,6 +2,8 @@
 
 ```Meow to you all, Techies, HUB200 staff, and mayhaps Zain tech team!```
 
+https://github.com/user-attachments/assets/30884f93-6bb2-4887-9b75-c4bf91472044
+
 **Document Classification:** Internal Technical Architecture and Operational Manual  
 **Project:** Nadi Gym Management Platform Infrastructure and Zero-Downtime Deployment Engine  
 **Target Operating System:** AlmaLinux 9 / Enterprise Linux (Kernel 5.14+)  

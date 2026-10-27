@@ -2,15 +2,15 @@
 
 ```Meow to you all, Techies, HUB200 staff, and mayhaps Zain tech team!```
 
-<div align="center">
-  <img width="400" height="400" alt="WhatsApp Video 2026-10-27 at 5 10 25 PM" src="https://github.com/user-attachments/assets/c1624681-8032-46a4-ac0e-293472190dd4" />
-</div>
-
 **Document Classification:** Internal Technical Architecture and Operational Manual  
 **Project:** Nadi Gym Management Platform Infrastructure and Zero-Downtime Deployment Engine  
 **Target Operating System:** AlmaLinux 9 / Enterprise Linux (Kernel 5.14+)  
 **Ingress Host Gateway:** 178.18.249.160  
 **Security Standard:** SELinux Enforcing Mode (Zero AVC Denials), Polkit D-Bus Least-Privilege Authorization  
+
+<div align="center">
+  <img width="400" height="400" alt="WhatsApp Video 2026-10-27 at 5 10 25 PM" src="https://github.com/user-attachments/assets/c1624681-8032-46a4-ac0e-293472190dd4" />
+</div>
 
 ---
 

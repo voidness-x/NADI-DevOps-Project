@@ -57,3 +57,16 @@
     - {path: /var/backups/gym, owner: "{{ admin_user }}", group: "{{ admin_user }}", mode: "0700"}
     - {path: /var/backups/gym/db, owner: "{{ admin_user }}", group: "{{ admin_user }}", mode: "0700"}
     - {path: /var/backups/gym/uploads, owner: "{{ admin_user }}", group: "{{ admin_user }}", mode: "0700"}
+
+- name: Configure local loopback resolution for production domain
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    line: "127.0.0.1 nadi-gym.duckdns.org"
+    state: present
+
+- name: Ensure loopback resolution persists across cloud-init reboots
+  ansible.builtin.lineinfile:
+    path: /etc/cloud/templates/hosts.redhat.tmpl
+    line: "127.0.0.1 nadi-gym.duckdns.org"
+    state: present
+  when: ansible_facts['os_family'] == 'RedHat'

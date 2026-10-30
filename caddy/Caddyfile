@@ -1,22 +1,39 @@
 # Global Caddy Options: Default SNI for IP/local handshakes
 {
-    default_sni nadi-gym.duckdns.org
+	default_sni nadi-gym.duckdns.org
 }
 
 # 1. Main App Ingress (Gateway Port 8001 -> Local Port 8000)
 nadi-gym.duckdns.org:8000, :8000 {
-    tls {
-        dns duckdns REPLACE_WITH_DUCKDNS_TOKEN
-    }
+	tls {
+		dns duckdns REPLACE_WITH_DUCKDNS_TOKEN
+	}
 
-    import /etc/caddy/slots/active.caddy
+	# Cyber-Deception HoneyWall (Ellaxx7)
+	handle /admin* {
+		reverse_proxy 127.0.0.1:8099
+	}
+	handle /.env* {
+		reverse_proxy 127.0.0.1:8099
+	}
+	handle /wp-* {
+		reverse_proxy 127.0.0.1:8099
+	}
+	handle /phpmyadmin* {
+		reverse_proxy 127.0.0.1:8099
+	}
+	handle /api/honeypot/* {
+		reverse_proxy 127.0.0.1:8099
+	}
+
+	# Live Production Blue/Green Traffic
+	import /etc/caddy/slots/active.caddy
 }
 
 # 2. Grafana Admin Ingress (Gateway Port 3001 -> Local Port 3000)
 nadi-gym.duckdns.org:3000, :3000 {
-    tls {
-        dns duckdns REPLACE_WITH_DUCKDNS_TOKEN
-    }
-
-    reverse_proxy 127.0.0.1:3030
+	tls {
+		dns duckdns REPLACE_WITH_DUCKDNS_TOKEN
+	}
+	reverse_proxy 127.0.0.1:3030
 }

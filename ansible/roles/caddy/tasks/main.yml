@@ -53,3 +53,26 @@
     name: caddy
     enabled: true
     state: started
+
+- name: Deploy Cyber-Deception Honeypot script (Ellaxx7)
+  ansible.builtin.copy:
+    src: ../../../../scripts/honeypot.py
+    dest: /opt/gym/devops/scripts/honeypot.py
+    owner: deploy
+    group: deploy
+    mode: "0755"
+
+- name: Install systemd unit for gym-honeypot service
+  ansible.builtin.copy:
+    src: ../../../../systemd/gym-honeypot.service
+    dest: /etc/systemd/system/gym-honeypot.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Ensure gym-honeypot service is enabled and started
+  ansible.builtin.systemd:
+    name: gym-honeypot
+    enabled: true
+    state: started

@@ -1,0 +1,21 @@
+[Unit]
+Description=Nadi Gym Cyber-Deception Honeypot (Ellaxx7)
+After=network.target caddy.service
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+WorkingDirectory=/opt/gym/devops
+ExecStart=/usr/bin/python3 /opt/gym/devops/scripts/honeypot.py
+Restart=always
+RestartSec=5
+
+# Security Sandboxing
+ProtectSystem=full
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/log/gym
+
+[Install]
+WantedBy=multi-user.target

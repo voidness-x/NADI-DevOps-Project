@@ -11,5 +11,5 @@ route:
 receivers:
   - name: 'discord'
     discord_configs:
-      - webhook_url: 'https://discord.com/api/webhooks/REDACTED_DISCORD_WEBHOOK'
+      - webhook_url_file: '/etc/gym/secrets/discord_webhook_url'
         send_resolved: true

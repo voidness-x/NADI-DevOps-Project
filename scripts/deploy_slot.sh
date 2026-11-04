@@ -38,7 +38,10 @@ export BE_PORT="${CANDIDATE_BE_PORT}"
 export FE_PORT="${CANDIDATE_FE_PORT}"
 export BACKEND_TAG="${BACKEND_TAG:-latest}"
 export FRONTEND_TAG="${FRONTEND_TAG:-latest}"
-export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-REPLACE_WITH_POSTGRES_PASSWORD}"
+export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-}"
+if [ -z "$POSTGRES_PASSWORD" ] && [ -f "/etc/gym/secrets/postgres_password" ]; then
+    export POSTGRES_PASSWORD="$(cat /etc/gym/secrets/postgres_password)"
+fi
 
 # 3. Build and launch candidate slot containers (Backend & Frontend)
 docker compose -f compose/compose.slot.yml build

@@ -35,7 +35,7 @@ services:
     container_name: gym-postgres-exporter
     restart: unless-stopped
     environment:
-      DATA_SOURCE_NAME: "postgresql://gym_user:REPLACE_WITH_POSTGRES_PASSWORD@gym-postgres:5432/gym_db?sslmode=disable"
+      DATA_SOURCE_NAME: "postgresql://gym_user:${POSTGRES_PASSWORD}@gym-postgres:5432/gym_db?sslmode=disable"
     networks:
       - gym-data
 

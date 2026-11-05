@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, time, ssl, subprocess, urllib.request
+import sys, time, ssl, os, subprocess, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 DOMAIN = "nadi-gym.duckdns.org"
@@ -14,7 +14,68 @@ def get_active_slot():
     except Exception:
         return "blue"
 
-def make_request(req_id, timeout=3.0):
+def get_slot_ports(slot):
+    if slot == "green":
+        return "8102", "8202"
+    return "8101", "8201"
+
+def get_env_with_secrets():
+    env = os.environ.copy()
+    if os.path.exists("/etc/gym/secrets/postgres_password"):
+        try:
+            with open("/etc/gym/secrets/postgres_password", "r") as f:
+                env["POSTGRES_PASSWORD"] = f.read().strip()
+        except Exception:
+            pass
+    elif os.path.exists("/etc/gym/backend.env"):
+        try:
+            with open("/etc/gym/backend.env", "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("POSTGRES_PASSWORD="):
+                        env["POSTGRES_PASSWORD"] = line.split("=", 1)[1].strip()
+        except Exception:
+            pass
+    return env
+
+def ensure_slot_running(slot):
+    be_port, _ = get_slot_ports(slot)
+    health_url = f"http://127.0.0.1:{be_port}/health"
+
+    # Fast probe
+    try:
+        req = urllib.request.Request(health_url)
+        with urllib.request.urlopen(req, timeout=1.0) as resp:
+            if resp.status == 200:
+                return True
+    except Exception:
+        pass
+
+    # Launch container if offline
+    env = get_env_with_secrets()
+    subprocess.run(
+        [
+            "docker", "compose", "-p", f"gym-{slot}",
+            "-f", "/opt/gym/devops/compose/compose.slot.yml",
+            "--env-file", f"/opt/gym/devops/compose/slot-{slot}.env",
+            "up", "-d"
+        ],
+        env=env,
+        capture_output=True
+    )
+
+    # Poll until ready (up to 10s)
+    for _ in range(20):
+        try:
+            req = urllib.request.Request(health_url)
+            with urllib.request.urlopen(req, timeout=0.5) as resp:
+                if resp.status == 200:
+                    return True
+        except Exception:
+            time.sleep(0.5)
+    return False
+
+def make_request(req_id, timeout=2.0):
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
@@ -33,8 +94,7 @@ def make_request(req_id, timeout=3.0):
         return req_id, 0, elapsed, "none", str(e)
 
 def switch_slot(target_slot):
-    subprocess.run(["docker", "compose", "-p", f"gym-{target_slot}", "-f", "/opt/gym/devops/compose/compose.slot.yml", "--env-file", f"/opt/gym/devops/compose/slot-{target_slot}.env", "up", "-d"], capture_output=True)
-    time.sleep(1.0)
+    ensure_slot_running(target_slot)
     res = subprocess.run(["sudo", "/usr/local/bin/switch_slot.sh", target_slot], capture_output=True, text=True)
     if res.returncode != 0:
         subprocess.run(["/opt/gym/devops/scripts/switch.sh", target_slot], capture_output=True)
@@ -42,6 +102,10 @@ def switch_slot(target_slot):
 def main():
     initial_slot = get_active_slot()
     target_slot = "green" if initial_slot == "blue" else "blue"
+
+    # Pre-verify both slots so cutover has zero transition delay
+    ensure_slot_running(initial_slot)
+    ensure_slot_running(target_slot)
 
     print("=" * 65)
     print("NADI GYM DEVOPS: ZERO-DOWNTIME INGRESS BENCHMARK")
@@ -73,7 +137,7 @@ def main():
             icon = "[PASS]" if status == 200 else "[FAIL]"
             err_str = f" ({err})" if err else ""
             print(f"Req #{req_id:02d}: {icon} HTTP {status} | Latency: {elapsed:5.1f}ms | Upstream: {slot.upper()}{err_str}")
-            time.sleep(0.08)
+            time.sleep(0.06)
 
     success = [r for r in results if r[1] == 200]
     failed = [r for r in results if r[1] != 200]

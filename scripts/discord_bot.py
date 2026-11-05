@@ -1,4 +1,5 @@
 import os
+import asyncio
 import subprocess
 import json
 import urllib.request
@@ -28,6 +29,47 @@ class NadiBot(commands.Bot):
                 print(f"Sync error for {guild.name}: {e}")
 
 bot = NadiBot()
+
+class CommandResult:
+    def __init__(self, returncode=0, stdout="", stderr=""):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+async def run_cmd_async(cmd, timeout=30):
+    try:
+        proc = await asyncio.to_thread(
+            subprocess.run,
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+        return proc
+    except subprocess.TimeoutExpired:
+        return CommandResult(
+            returncode=124,
+            stdout="",
+            stderr=f"Command timed out after {timeout} seconds."
+        )
+    except Exception as ex:
+        return CommandResult(
+            returncode=1,
+            stdout="",
+            stderr=str(ex)
+        )
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    print(f"App command error: {error}")
+    msg = f"❌ Command execution error: {error}"
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
+    except Exception as e:
+        print(f"Failed to deliver error response: {e}")
 
 def is_authorized(user):
     allowed = {AUTHORIZED_USER.lower(), "voidness.x", "ellaxx7"}
@@ -97,14 +139,20 @@ async def help_slash(interaction: discord.Interaction):
 @bot.command(name="status")
 async def status_prefix(ctx):
     if not is_authorized(ctx.author): return
-    await ctx.reply(embed=get_status_embed())
+    embed = await asyncio.to_thread(get_status_embed)
+    await ctx.reply(embed=embed)
 
 @bot.tree.command(name="status", description="Inspect active slot, container health, and memory telemetry")
 async def status_slash(interaction: discord.Interaction):
     if not is_authorized(interaction.user):
         await interaction.response.send_message("⛔ Unauthorized", ephemeral=True)
         return
-    await interaction.response.send_message(embed=get_status_embed())
+    await interaction.response.defer()
+    try:
+        embed = await asyncio.to_thread(get_status_embed)
+        await interaction.followup.send(embed=embed)
+    except Exception as ex:
+        await interaction.followup.send(f"❌ Failed to retrieve status: {ex}")
 
 @bot.command(name="switch")
 async def switch_prefix(ctx, slot: str = ""):
@@ -114,11 +162,12 @@ async def switch_prefix(ctx, slot: str = ""):
         await ctx.reply("⚠️ Usage: `!switch blue` or `!switch green`")
         return
     m = await ctx.reply(f"🔄 Switching production traffic to **`{slot.upper()}`**...")
-    proc = subprocess.run(["sudo", "/usr/local/bin/switch_slot.sh", slot], capture_output=True, text=True)
+    proc = await run_cmd_async(["sudo", "/usr/local/bin/switch_slot.sh", slot], timeout=25)
     if proc.returncode == 0:
         await m.edit(content=f"🚀 Traffic successfully switched to **`{slot.upper()}`** with zero downtime!")
     else:
-        await m.edit(content=f"❌ Switch failed:\n```{proc.stderr[-300:]}```")
+        err = proc.stderr.strip() or proc.stdout.strip()
+        await m.edit(content=f"❌ Switch failed:\n```{err[-300:]}```")
 
 @bot.tree.command(name="switch", description="Atomic zero-downtime cutover between Blue and Green slots")
 @app_commands.choices(slot=[
@@ -130,66 +179,79 @@ async def switch_slash(interaction: discord.Interaction, slot: app_commands.Choi
         await interaction.response.send_message("⛔ Unauthorized", ephemeral=True)
         return
     await interaction.response.defer()
-    proc = subprocess.run(["sudo", "/usr/local/bin/switch_slot.sh", slot.value], capture_output=True, text=True)
-    if proc.returncode == 0:
-        await interaction.followup.send(f"🚀 Ingress traffic switched to **`{slot.value.upper()}`** with zero downtime!")
-    else:
-        await interaction.followup.send(f"❌ Switch failed: `{proc.stderr}`")
+    try:
+        proc = await run_cmd_async(["sudo", "/usr/local/bin/switch_slot.sh", slot.value], timeout=25)
+        if proc.returncode == 0:
+            await interaction.followup.send(f"🚀 Ingress traffic switched to **`{slot.value.upper()}`** with zero downtime!")
+        else:
+            err = proc.stderr.strip() or proc.stdout.strip()
+            await interaction.followup.send(f"❌ Switch failed: `{err}`")
+    except Exception as ex:
+        await interaction.followup.send(f"❌ Switch error: {ex}")
 
 @bot.command(name="benchmark")
 async def benchmark_prefix(ctx):
     if not is_authorized(ctx.author): return
     m = await ctx.reply("⚡ Running Zero-Downtime Benchmark (25 requests across reload)...")
-    proc = subprocess.run(["python3", "/opt/gym/devops/scripts/benchmark_switch.py"], capture_output=True, text=True, timeout=30)
-    report = proc.stdout if proc.returncode == 0 else f"{proc.stdout}\n{proc.stderr}"
-    filtered = [l for l in report.split("\n") if "REQ #" not in l and not l.startswith("#")]
-    text = "\n".join(filtered).strip()
-    if len(text) > 1900:
-        text = text[-1900:]
-    await m.edit(content=f"```{text}```")
+    try:
+        proc = await run_cmd_async(["python3", "/opt/gym/devops/scripts/benchmark_switch.py"], timeout=45)
+        report = proc.stdout if proc.returncode == 0 else f"{proc.stdout}\n{proc.stderr}"
+        filtered = [l for l in report.split("\n") if "REQ #" not in l and not l.startswith("#")]
+        text = "\n".join(filtered).strip()
+        if not text:
+            text = proc.stderr.strip() or "Benchmark completed with no output."
+        if len(text) > 1900:
+            text = text[-1900:]
+        await m.edit(content=f"```{text}```")
+    except Exception as ex:
+        await m.edit(content=f"❌ Benchmark execution error: {ex}")
+
 @bot.tree.command(name="benchmark", description="Run 25-request in-flight load test verifying 100% zero downtime")
 async def benchmark_slash(interaction: discord.Interaction):
     if not is_authorized(interaction.user):
         await interaction.response.send_message("⛔ Unauthorized", ephemeral=True)
         return
     await interaction.response.defer()
-    proc = subprocess.run(["python3", "/opt/gym/devops/scripts/benchmark_switch.py"], capture_output=True, text=True, timeout=30)
-    report = proc.stdout if proc.returncode == 0 else f"{proc.stdout}\n{proc.stderr}"
-    lines = [l for l in report.split("\n") if "REQ #" not in l and not l.startswith("#")]
-    text = "\n".join(lines).strip()
-    if len(text) > 1900:
-        text = text[-1900:]
-    await interaction.followup.send(f"```{text}```")
+    try:
+        proc = await run_cmd_async(["python3", "/opt/gym/devops/scripts/benchmark_switch.py"], timeout=45)
+        report = proc.stdout if proc.returncode == 0 else f"{proc.stdout}\n{proc.stderr}"
+        lines = [l for l in report.split("\n") if "REQ #" not in l and not l.startswith("#")]
+        text = "\n".join(lines).strip()
+        if not text:
+            text = proc.stderr.strip() or "Benchmark completed with no output."
+        if len(text) > 1900:
+            text = text[-1900:]
+        await interaction.followup.send(f"```{text}```")
+    except Exception as ex:
+        await interaction.followup.send(f"❌ Benchmark execution failed: `{ex}`")
+
+def load_apk_info():
+    d = json.load(open("/srv/apk/version.json"))
+    mb = d.get('size_bytes', 0) / 1048576
+    embed = discord.Embed(title="📱 Nadi Gym Mobile Android Release", color=0x2ecc71)
+    embed.add_field(name="Version", value=f"`{d.get('tag', 'unknown')}`", inline=True)
+    embed.add_field(name="Size", value=f"{mb:.1f} MB", inline=True)
+    embed.add_field(name="Published", value=d.get('published_at', 'N/A'), inline=False)
+    embed.add_field(name="SHA-256 Checksum", value=f"`{d.get('sha256', 'N/A')}`", inline=False)
+    embed.add_field(name="Download Portal", value="https://178.18.249.160:8001/download/", inline=False)
+    return embed
 
 @bot.command(name="apk")
 async def apk_cmd(ctx):
     try:
-        d = json.load(open("/srv/apk/version.json"))
-        mb = d.get('size_bytes', 0) / 1048576
-        embed = discord.Embed(title="📱 Nadi Gym Mobile Android Release", color=0x2ecc71)
-        embed.add_field(name="Version", value=f"`{d.get('tag', 'unknown')}`", inline=True)
-        embed.add_field(name="Size", value=f"{mb:.1f} MB", inline=True)
-        embed.add_field(name="Published", value=d.get('published_at', 'N/A'), inline=False)
-        embed.add_field(name="SHA-256 Checksum", value=f"`{d.get('sha256', 'N/A')}`", inline=False)
-        embed.add_field(name="Download Portal", value="https://178.18.249.160:8001/download/", inline=False)
+        embed = await asyncio.to_thread(load_apk_info)
         await ctx.reply(embed=embed)
     except Exception as ex:
         await ctx.reply(f"❌ Error: {ex}")
 
 @bot.tree.command(name="apk", description="Get latest mobile Android APK release and SHA-256 hash")
 async def apk_slash(interaction: discord.Interaction):
+    await interaction.response.defer()
     try:
-        d = json.load(open("/srv/apk/version.json"))
-        mb = d.get("size_bytes", 0) / 1048576
-        embed = discord.Embed(title="📱 Nadi Gym Mobile Android Release", color=0x2ecc71)
-        embed.add_field(name="Version", value=f"`{d.get("tag", "unknown")}`", inline=True)
-        embed.add_field(name="Size", value=f"{mb:.1f} MB", inline=True)
-        embed.add_field(name="Published", value=d.get("published_at", "N/A"), inline=False)
-        embed.add_field(name="SHA-256 Checksum", value=f"`{d.get("sha256", "N/A")}`", inline=False)
-        embed.add_field(name="Download Portal", value="https://178.18.249.160:8001/download/", inline=False)
-        await interaction.response.send_message(embed=embed)
+        embed = await asyncio.to_thread(load_apk_info)
+        await interaction.followup.send(embed=embed)
     except Exception as ex:
-        await interaction.response.send_message(f"❌ Error: {ex}", ephemeral=True)
+        await interaction.followup.send(f"❌ Error: {ex}", ephemeral=True)
 
 @bot.command(name="logs")
 async def logs_cmd(ctx, service: str = "backend"):
@@ -202,41 +264,41 @@ async def logs_cmd(ctx, service: str = "backend"):
     elif service == "db":
         cmd = ["docker", "logs", "--tail", "15", "gym-postgres"]
     else:
-        slot = subprocess.getoutput("cat /opt/gym/state/active_slot 2>/dev/null || echo blue").strip()
+        slot = (await asyncio.to_thread(subprocess.getoutput, "cat /opt/gym/state/active_slot 2>/dev/null || echo blue")).strip()
         cmd = ["docker", "logs", "--tail", "15", f"gym-{slot}-backend"]
-    res = subprocess.run(cmd, capture_output=True, text=True)
-    out = res.stdout or res.stderr
+    proc = await run_cmd_async(cmd, timeout=15)
+    out = proc.stdout or proc.stderr
     await ctx.reply(f"📋 **Logs for `{service}`:**\n```{out[-1800:]}```")
 
 @bot.command(name="rollback")
 async def rollback_cmd(ctx):
     if not is_authorized(ctx.author): return
-    curr = subprocess.getoutput("cat /opt/gym/state/active_slot 2>/dev/null || echo blue").strip()
+    curr = (await asyncio.to_thread(subprocess.getoutput, "cat /opt/gym/state/active_slot 2>/dev/null || echo blue")).strip()
     target = "green" if curr == "blue" else "blue"
     m = await ctx.reply(f"🚨 Rolling back to **`{target.upper()}`**...")
-    proc = subprocess.run(["sudo", "/usr/local/bin/switch_slot.sh", target], capture_output=True, text=True)
+    proc = await run_cmd_async(["sudo", "/usr/local/bin/switch_slot.sh", target], timeout=25)
     if proc.returncode == 0:
         await m.edit(content=f"🛡️ Rollback complete! Live slot: **`{target.upper()}`**.")
     else:
-        await m.edit(content=f"❌ Error: {proc.stderr}")
+        err = proc.stderr.strip() or proc.stdout.strip()
+        await m.edit(content=f"❌ Error:\n```{err[-300:]}```")
 
 @bot.command(name="deploy")
 async def deploy_cmd(ctx, slot: str = ""):
     if not is_authorized(ctx.author): return
-    curr = subprocess.getoutput("cat /opt/gym/state/active_slot 2>/dev/null || echo blue").strip()
+    curr = (await asyncio.to_thread(subprocess.getoutput, "cat /opt/gym/state/active_slot 2>/dev/null || echo blue")).strip()
     target = slot.lower().strip() if slot in ["blue", "green"] else ("green" if curr == "blue" else "blue")
     
     msg = await ctx.reply(f"⏳ Initiating deployment pipeline for slot **`{target.upper()}`**...")
-    proc = subprocess.run(
+    proc = await run_cmd_async(
         ["/opt/gym/devops/scripts/deploy.sh", target],
-        capture_output=True,
-        text=True,
         timeout=180
     )
     if proc.returncode == 0:
         await msg.edit(content=f"✅ Successfully deployed slot **`{target.upper()}`**! Traffic is live with zero downtime.")
     else:
-        await msg.edit(content=f"❌ Deployment to slot `{target}` failed:\n```{proc.stderr[-400:]}```")
+        err = proc.stderr.strip() or proc.stdout.strip()
+        await msg.edit(content=f"❌ Deployment to slot `{target}` failed:\n```{err[-400:]}```")
 
 @bot.tree.command(name="deploy", description="Deploy new candidate container build with automated smoke test & cutover")
 async def deploy_slash(interaction: discord.Interaction):
@@ -244,13 +306,17 @@ async def deploy_slash(interaction: discord.Interaction):
         await interaction.response.send_message("⛔ Unauthorized", ephemeral=True)
         return
     await interaction.response.defer()
-    curr = subprocess.getoutput("cat /opt/gym/state/active_slot 2>/dev/null || echo blue").strip()
-    target = "green" if curr == "blue" else "blue"
-    proc = subprocess.run(["/opt/gym/devops/scripts/deploy.sh", target], capture_output=True, text=True, timeout=180)
-    if proc.returncode == 0:
-        await interaction.followup.send(f"✅ Successfully deployed slot **`{target.upper()}`** with zero downtime!")
-    else:
-        await interaction.followup.send(f"❌ Deployment failed: `{proc.stderr[-300:]}`")
+    try:
+        curr = (await asyncio.to_thread(subprocess.getoutput, "cat /opt/gym/state/active_slot 2>/dev/null || echo blue")).strip()
+        target = "green" if curr == "blue" else "blue"
+        proc = await run_cmd_async(["/opt/gym/devops/scripts/deploy.sh", target], timeout=180)
+        if proc.returncode == 0:
+            await interaction.followup.send(f"✅ Successfully deployed slot **`{target.upper()}`** with zero downtime!")
+        else:
+            err = proc.stderr.strip() or proc.stdout.strip()
+            await interaction.followup.send(f"❌ Deployment failed:\n```{err[-500:]}```")
+    except Exception as ex:
+        await interaction.followup.send(f"❌ Deployment error: {ex}")
 
 if __name__ == "__main__":
     if TOKEN:
